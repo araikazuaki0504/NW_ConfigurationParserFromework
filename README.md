@@ -1,64 +1,66 @@
 # NWConfig Parser
 
-Extensible Python framework for reading captured network-device configuration and command output. The common foundation is in place, and the operational parsing scope now includes four Cisco IOS/IOS XE commands.
+ネットワーク機器から取得した設定ファイルおよびコマンド出力を読み取るための、拡張可能なPythonフレームワークです。共通基盤は実装済みで、現在はCisco IOS/IOS XEの4種類の運用コマンドに対応しています。
 
-## Requirements and installation
+## 動作要件とインストール
 
-- Python 3.12 or newer
-- No runtime third-party dependencies
+- Python 3.12以上
+- 実行時のサードパーティ依存ライブラリなし
 
 ```powershell
 python -m pip install -e ".[dev]"
 ```
 
-The `dev` extra installs pytest, Ruff, and mypy. The package uses a `src/` layout and exposes the `nwconfig-parser` command.
+`dev`追加オプションではpytest、Ruff、mypyがインストールされます。パッケージは`src/`レイアウトを使用し、`nwconfig-parser`コマンドを提供します。
 
-## Architecture
+## アーキテクチャ
 
-- `src/nwconfig_parser/models.py`: common typed data models, parse outcomes, source references, topology primitives, and verification status.
-- `src/nwconfig_parser/parsers/base.py`: parser interface and selection exceptions.
-- `src/nwconfig_parser/parsers/registry.py`: explicit registration, conflict detection, matching, and parser descriptions.
-- `src/nwconfig_parser/core/engine.py`: execution facade over the registry.
-- `src/nwconfig_parser/input.py`: file decoding and newline normalization while retaining the decoded original text.
-- `src/nwconfig_parser/cli.py`: CLI and JSON serialization.
-- `src/nwconfig_parser/parsers/example.py`: synthetic line parser for exercising the Phase 1 path end to end.
-- `src/nwconfig_parser/parsers/cisco_operational.py`: command-specific handlers for four IOS/IOS XE operational commands.
-- `src/nwconfig_parser/parsers/cisco_config.py`: Cisco IOS/IOS XE running-config hierarchy builder; `cisco_config_semantics.py` converts recognised statements to common models and marks each node PARSED/UNSUPPORTED/INVALID.
-- `src/nwconfig_parser/analysis/prefix_list.py`: prefix-list evaluation that returns INDETERMINATE for incomplete lists.
+- `src/nwconfig_parser/models.py`：共通の型付きデータモデル、解析結果、参照元情報、トポロジーの基本要素、検証ステータス。
+- `src/nwconfig_parser/parsers/base.py`：パーサのインターフェースと選択時の例外。
+- `src/nwconfig_parser/parsers/registry.py`：明示的な登録、競合検出、照合、パーサの説明情報。
+- `src/nwconfig_parser/core/engine.py`：レジストリを利用する解析実行インターフェース。
+- `src/nwconfig_parser/input.py`：デコードした原文を保持しながらファイルをデコードし、改行を正規化。
+- `src/nwconfig_parser/cli.py`：CLIとJSONシリアライズ。
+- `src/nwconfig_parser/parsers/example.py`：Phase 1の一連の処理を検証する合成データ用行パーサ。
+- `src/nwconfig_parser/parsers/cisco_operational.py`：IOS/IOS XEの4種類の運用コマンドに固有の解析処理。
+- `src/nwconfig_parser/parsers/cisco_config.py`：Cisco IOS/IOS XEのrunning-configの階層構造を構築。`cisco_config_semantics.py`が認識した設定文を共通モデルへ変換し、各ノードを`PARSED`、`UNSUPPORTED`、`INVALID`に分類。
+- `src/nwconfig_parser/analysis/prefix_list.py`：Prefix Listを評価し、不完全なリストには`INDETERMINATE`を返す。
 
-The data flow is InputDocument (raw and normalized text) → ParserEngine → ParserRegistry selection → selected parser → ParseResult (parsed data, status, issues, source references). The Registry selects and describes parsers; the Engine invokes them and enriches metadata. A parser must report partial or failed results explicitly; parser selection never falls back to a guessed implementation.
+データの流れは、InputDocument（原文と正規化済みテキスト）→ ParserEngine → ParserRegistryによる選択 → 選択されたパーサ → ParseResult（解析データ、ステータス、問題点、参照元情報）です。
+
+Registryはパーサの選択と説明を担当し、Engineはパーサの呼び出しとメタデータの補完を担当します。パーサは部分成功や失敗を明示的に報告しなければなりません。パーサ選択時に推測した実装へフォールバックすることはありません。
 
 ## CLI
 
-List registered parsers:
+登録済みパーサを一覧表示します。
 
 ```powershell
 nwconfig-parser list
 nwconfig-parser list --vendor Example
 ```
 
-Inspect parser metadata:
+パーサのメタデータを確認します。
 
 ```powershell
 nwconfig-parser info --vendor Example --os Synthetic --command "parse text"
 ```
 
-Parse captured text as JSON:
+取得したテキストを解析し、JSONとして出力します。
 
 ```powershell
 nwconfig-parser parse --vendor Example --os Synthetic --command "parse text" --input .\capture.txt --output .\result.json
 nwconfig-parser parse --vendor Cisco --os IOS --command "show ip route" --input .\route.txt --output .\route.json
 ```
 
-Equivalent after installation: `python -m nwconfig_parser parse ...`.
+インストール後は`python -m nwconfig_parser parse ...`でも同等の操作ができます。
 
-Validate parse completeness:
+解析の完全性を検証します。
 
 ```powershell
 nwconfig-parser validate --vendor Example --os Synthetic --command "parse text" --input .\capture.txt
 ```
 
-`--os-family` is an alias for `--os`, and `--version` is an alias for `--os-version`. Parse writes only JSON to standard output unless `--output` is supplied; operational errors go to standard error. Exit codes are `0` for SUCCESS, `1` for PARTIAL_SUCCESS, and `2` for FAILED or CLI/input/selection errors.
+`--os-family`は`--os`の別名、`--version`は`--os-version`の別名です。`--output`を指定しない場合、parseは標準出力にJSONのみを書き込みます。運用上のエラーは標準エラー出力に書き込まれます。終了コードはSUCCESSが`0`、PARTIAL_SUCCESSが`1`、FAILEDまたはCLI・入力・選択エラーが`2`です。
 
 ## Python API
 
@@ -77,31 +79,33 @@ result = engine.parse(
 )
 ```
 
-`Parser.parse(text, context)` returns `ParseResult`. `SourceReference` links parsed data and issues back to file, command, and line information. Models use dataclasses and retain vendor-specific extensions in attributes where appropriate.
+`Parser.parse(text, context)`は`ParseResult`を返します。`SourceReference`は解析データや問題点を元ファイル、コマンド、行情報に関連付けます。モデルはdataclassesを使用し、必要に応じてベンダー固有の拡張情報を属性に保持します。
 
-## Registry and adding a parser
+## Registryとパーサの追加
 
-Each parser declares `vendor`, `os_family`, `supported_versions`, `command`, and `parser_version`. Empty `supported_versions` means the parser accepts any version; this broad registration conflicts with another parser registered for the same vendor/OS/command. Registration conflicts raise `DuplicateParserError`. Missing or ambiguous selection raises an explicit `ParserSelectionError` subclass.
+各パーサは`vendor`、`os_family`、`supported_versions`、`command`、`parser_version`を宣言します。`supported_versions`が空なら任意のバージョンを受け付けますが、同じベンダー・OS・コマンドに登録された別のパーサと競合します。登録競合時は`DuplicateParserError`が発生します。選択候補がない場合や曖昧な場合は`ParserSelectionError`のサブクラスが明示的に発生します。
 
-To add a parser:
+パーサを追加する手順：
 
-1. Implement the `Parser` interface in the relevant vendor/OS module.
-2. Keep syntax and semantics specific to the device family in that parser.
-3. Return `ParseResult` with an accurate status, issues, and source references.
-4. Register it in the application registry.
-5. Add synthetic fixtures and pytest coverage before claiming device-output verification.
+1. 対象ベンダー・OSのモジュールで`Parser`インターフェースを実装する。
+2. 機器ファミリー固有の構文と意味解釈をそのパーサ内に保持する。
+3. 正確なステータス、問題点、参照元情報を持つ`ParseResult`を返す。
+4. アプリケーションのレジストリへ登録する。
+5. 実機出力による検証済みとする前に、合成フィクスチャとpytestテストを追加する。
 
-## Data models
+## データモデル
 
-The shared dataclasses include Device, Interface, VLAN, Route/RoutingTable, VRF, OSPFProcess/OSPFNeighbor, BGPPeer, ACL, NATRule, VPN, PrefixList/PrefixListEntry, RouteMap/RouteMapEntry, ParseResult/ParseIssue/SourceReference, TopologyNode/TopologyLink/LogicalDomain, and VerificationResult. IPv4 fields use `ipaddress` types. `TopologyLink` allows unknown endpoints and confidence; confirmed links require both devices. Verification status distinguishes PASS, FAIL, UNKNOWN, and ERROR.
+共通dataclassesには、Device、Interface、VLAN、Route/RoutingTable、VRF、OSPFProcess/OSPFNeighbor、BGPPeer、ACL、NATRule、VPN、PrefixList/PrefixListEntry、RouteMap/RouteMapEntry、ParseResult/ParseIssue/SourceReference、TopologyNode/TopologyLink/LogicalDomain、VerificationResultがあります。IPv4フィールドには`ipaddress`型を使用します。
 
-## Status and support
+`TopologyLink`は接続先が不明な状態と確信度を扱えます。確定済みリンクには両端の機器が必要です。検証ステータスは`PASS`、`FAIL`、`UNKNOWN`、`ERROR`を区別します。
 
-Implementation status uses `IMPLEMENTED`, `TESTED_WITH_SYNTHETIC_DATA`, `VERIFIED_WITH_DEVICE_OUTPUT`, and `NOT_IMPLEMENTED`. Synthetic test coverage is not evidence of verification against a device. See [docs/support-status.md](docs/support-status.md) for the current matrix.
+## 実装状況とサポート
 
-No sanitized real-device command outputs have been supplied, so no device output is marked verified. The example and Cisco parsers are marked tested with synthetic data only. The full command-level matrix and recognized output shapes are in [docs/support-status.md](docs/support-status.md).
+実装状況は`IMPLEMENTED`、`TESTED_WITH_SYNTHETIC_DATA`、`VERIFIED_WITH_DEVICE_OUTPUT`、`NOT_IMPLEMENTED`で表します。合成データによるテストは、実機出力による検証の証拠にはなりません。最新の対応表は[docs/support-status.md](docs/support-status.md)を参照してください。
 
-## Testing and quality
+機密情報を除去した実機コマンド出力はまだ提供されていないため、実機出力による検証済みとされたものはありません。ExampleおよびCiscoのパーサは合成データによるテスト済みのみです。コマンド別の対応表と認識できる出力形式も[docs/support-status.md](docs/support-status.md)に記載されています。
+
+## テストと品質
 
 ```powershell
 pytest
@@ -109,10 +113,10 @@ ruff check .
 mypy
 ```
 
-Synthetic test input is under `tests/fixtures/synthetic/`. Never add real captures without sanitizing addresses, hostnames, credentials, and other sensitive values.
+合成テスト入力は`tests/fixtures/synthetic/`にあります。アドレス、ホスト名、認証情報、その他の機密情報を無害化せずに実機の取得データを追加しないでください。
 
-## Scope and limitations
+## 対応範囲と制限事項
 
-Implemented operational commands are `show ip route`, `show interfaces status`, `show ip interface brief`, and `show vlan brief` under IOS and IOS XE registry keys. Unsupported line formats are reported rather than silently discarded; see [docs/support-status.md](docs/support-status.md) for accepted forms and limitations.
+IOSおよびIOS XEのレジストリキーで実装済みの運用コマンドは`show ip route`、`show interfaces status`、`show ip interface brief`、`show vlan brief`です。未対応の行形式は黙って破棄せず報告します。受け付ける形式と制限事項は[docs/support-status.md](docs/support-status.md)を参照してください。
 
-OSPF/BGP operational parsers, broader Cisco configuration semantics, other vendors, default inference, natural-language checks, semantic diff, and topology discovery remain unimplemented. IPv6 and LLDP remain explicitly excluded.
+OSPF/BGPの運用コマンド用パーサ、Cisco設定のより広範な意味解析、他ベンダー対応、デフォルト値の推定、自然言語による確認、意味的な差分比較、トポロジーの自動検出は未実装です。IPv6とLLDPは明示的に対象外です。
