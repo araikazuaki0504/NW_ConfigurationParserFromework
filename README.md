@@ -23,6 +23,7 @@ python -m pip install -e ".[dev]"
 - `src/nwconfig_parser/cli.py`：CLIとJSONシリアライズ。
 - `src/nwconfig_parser/parsers/example.py`：Phase 1の一連の処理を検証する合成データ用行パーサ。
 - `src/nwconfig_parser/parsers/cisco_operational.py`：IOS/IOS XEの4種類の運用コマンドに固有の解析処理。
+- `src/nwconfig_parser/parsers/operational_base.py`、`zebra_routes.py`、`yamaha_operational.py`、`fortinet_operational.py`、`a10_operational.py`、`hpe_comware_operational.py`：Phase 4のYamaha RTX / Fortinet / A10 / HPE Comware向けInterface・Routing解析（すべて合成データのみで検証、実機未検証。詳細は `docs/support-status.md`）。Arubaは未実装。
 - `src/nwconfig_parser/parsers/cisco_config.py`：Cisco IOS/IOS XEのrunning-configの階層構造を構築。`cisco_config_semantics.py`が認識した設定文を共通モデルへ変換し、各ノードを`PARSED`、`UNSUPPORTED`、`INVALID`に分類。
 - `src/nwconfig_parser/analysis/prefix_list.py`：Prefix Listを評価し、不完全なリストには`INDETERMINATE`を返す。
 

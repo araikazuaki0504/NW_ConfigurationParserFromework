@@ -14,11 +14,24 @@ from typing import Any, TextIO
 from nwconfig_parser.core.engine import ParserEngine
 from nwconfig_parser.input import load_text_file
 from nwconfig_parser.models import ParseResult, ParseStatus
+from nwconfig_parser.parsers.a10_operational import (
+    A10ShowInterfacesParser,
+    A10ShowIpRouteParser,
+)
 from nwconfig_parser.parsers.base import ParseContext, ParserSelectionError
 from nwconfig_parser.parsers.cisco_config import CiscoConfigParser
 from nwconfig_parser.parsers.cisco_operational import CiscoOperationalParser
 from nwconfig_parser.parsers.example import ExampleTextParser
+from nwconfig_parser.parsers.fortinet_operational import (
+    FortinetRoutingTableAllParser,
+    FortinetSystemInterfaceParser,
+)
+from nwconfig_parser.parsers.hpe_comware_operational import (
+    HpeComwareDisplayInterfaceParser,
+    HpeComwareDisplayIpRoutingTableParser,
+)
 from nwconfig_parser.parsers.registry import ParserRegistry
+from nwconfig_parser.parsers.yamaha_operational import YamahaShowIpRouteParser
 
 
 def _json_default(value: Any) -> Any:
@@ -44,6 +57,16 @@ def build_registry() -> ParserRegistry:
             "show vlan brief",
         ):
             registry.register(CiscoOperationalParser(command, os_family))
+    for parser_class in (
+        YamahaShowIpRouteParser,
+        FortinetRoutingTableAllParser,
+        FortinetSystemInterfaceParser,
+        A10ShowIpRouteParser,
+        A10ShowInterfacesParser,
+        HpeComwareDisplayIpRoutingTableParser,
+        HpeComwareDisplayInterfaceParser,
+    ):
+        registry.register(parser_class())
     return registry
 
 

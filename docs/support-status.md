@@ -5,15 +5,21 @@ Status vocabulary: `IMPLEMENTED`, `TESTED_WITH_SYNTHETIC_DATA`, `VERIFIED_WITH_D
 | Area | Vendor / OS | Command or capability | Status | Evidence / limitation |
 |---|---|---|---|---|
 | Parser pipeline smoke test | Example / Synthetic | `parse text` | TESTED_WITH_SYNTHETIC_DATA | Artificial line fixture; not a network device parser |
-| Configuration parser | Cisco / IOS, IOS XE | `running-config`: hierarchy, hostname, interface, VLAN, ip routing/route, router ospf, router bgp (address-family ipv4), ip prefix-list, route-map | TESTED_WITH_SYNTHETIC_DATA | Artificial config fixtures only (`tests/fixtures/synthetic/cisco_ios_running_config.txt`); IOS XE reuses IOS syntax, no device capture supplied |
+| Configuration parser | Cisco / IOS, IOS XE | `running-config`: hierarchy, hostname, interface, VLAN, ip routing/route, router ospf, router bgp (address-family ipv4), ip prefix-list (including `no ip prefix-list` removal by whole list / seq / entry / description, applied in file order), route-map, multi-line `banner` (any delimiter) | TESTED_WITH_SYNTHETIC_DATA | Artificial config fixtures only (`tests/fixtures/synthetic/cisco_ios_running_config.txt`); IOS XE reuses IOS syntax, no device capture supplied. Removal targets absent from parsed state are not applied and mark the list incomplete. `macro name` bodies are preserved with line ranges but not interpreted; other indentation-free multi-line constructs (e.g. `crypto pki certificate` hex data) are not specially handled |
 | Operational parser | Cisco / IOS | `show ip route`; `show interfaces status`; `show ip interface brief`; `show vlan brief` | TESTED_WITH_SYNTHETIC_DATA | Supported output shapes documented below; no device capture supplied |
 | Operational parser | Cisco / IOS XE | `show ip route`; `show interfaces status`; `show ip interface brief`; `show vlan brief` | TESTED_WITH_SYNTHETIC_DATA | Uses IOS-compatible synthetic shapes; IOS XE device output not verified |
 | Operational parser | Cisco / IOS | `show ip ospf neighbor`; `show ip bgp summary`; `show ip prefix-list` | NOT_IMPLEMENTED | Outside Phase 2 command set |
 | Operational parser | Cisco / NX-OS | Device-specific show output | NOT_IMPLEMENTED | Requires separate parser and representative output |
-| Operational parser | Yamaha / RTX series | `show ip route`; `show status lan`; `show ip interface` | NOT_IMPLEMENTED | Requires representative output |
-| Operational parser | Fortinet / FortiOS | `get router info routing-table all`; `get system interface`; `get router info bgp summary` | NOT_IMPLEMENTED | Requires representative output |
-| Operational parser | A10 / ACOS | `show ip route`; `show interfaces` | NOT_IMPLEMENTED | Requires representative output |
-| Operational parser | HPE / Comware | `display ip routing-table`; `display interface`; `display vlan` | NOT_IMPLEMENTED | Requires representative output |
+| Operational parser | Yamaha / RTX | `show ip route` (English header) | TESTED_WITH_SYNTHETIC_DATA | Format from general knowledge, unverified on devices; Japanese header, unknown Kind values and rows without a prefix length are reported as issues |
+| Operational parser | Yamaha / RTX | `show status lan`; `show ip interface` | NOT_IMPLEMENTED | Command names and output unverified |
+| Operational parser | Fortinet / FortiOS | `get router info routing-table all` (Zebra style, ECMP, VRF heading) | TESTED_WITH_SYNTHETIC_DATA | FortiOS 7.x variants unverified; unmatched lines become issues |
+| Operational parser | Fortinet / FortiOS | `get system interface` (`== [ name ]` blocks, key: value) | TESTED_WITH_SYNTHETIC_DATA | `status` kept raw in attributes; admin/operational NOT inferred; IPv6 fields ignored |
+| Operational parser | Fortinet / FortiOS | `get router info bgp summary` | NOT_IMPLEMENTED | Outside Phase 4 priority (Interface/Routing) |
+| Operational parser | A10 / ACOS | `show ip route` (Zebra style) | TESTED_WITH_SYNTHETIC_DATA | Separate parser class from FortiOS; shares only a line-grammar base; unverified |
+| Operational parser | A10 / ACOS | `show interfaces` (name, state, hardware/MAC, IPv4) | TESTED_WITH_SYNTHETIC_DATA | Counter and other detail lines are not parsed and make real output PARTIAL_SUCCESS by design |
+| Operational parser | HPE / Comware | `display ip routing-table` (Comware 7 style, ECMP continuation rows) | TESTED_WITH_SYNTHETIC_DATA | Direct-route NextHop kept in `attributes[next_hop_raw]`, not as a next hop; Comware 5 and VPN-instance output unverified |
+| Operational parser | HPE / Comware | `display interface` (Comware 7 style) | TESTED_WITH_SYNTHETIC_DATA | `Administratively DOWN` sets admin_status only; UP/DOWN sets operational_status only; other fields (counters, media) are reported as issues |
+| Operational parser | HPE / Comware | `display vlan` | NOT_IMPLEMENTED | Outside Phase 4 priority |
 | Operational parser | ArubaOS-Switch, ArubaOS-CX | No command parser registered | NOT_IMPLEMENTED | Requires command selection and representative output |
 | Device-output verification | All | Real device captures | NOT_IMPLEMENTED | No verified captures supplied |
 | IPv6 and LLDP | All | Excluded features | NOT_IMPLEMENTED | Explicitly out of scope |

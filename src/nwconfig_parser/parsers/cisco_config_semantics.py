@@ -15,6 +15,7 @@ from ipaddress import AddressValueError, IPv4Address, IPv4Interface, IPv4Network
 
 from nwconfig_parser.models import (
     VLAN,
+    Banner,
     BGPNetwork,
     BGPPeer,
     BGPProcess,
@@ -44,6 +45,12 @@ _PREFIX_LINE = re.compile(
     re.IGNORECASE,
 )
 _PREFIX_NAME = re.compile(r"^ip\s+prefix-list\s+(?P<name>\S+)", re.IGNORECASE)
+_NO_PREFIX_ENTRY = re.compile(
+    r"^(?:seq\s+(?P<sequence>\d+))?\s*"
+    r"(?:(?P<action>permit|deny)\s+(?P<prefix>\S+)"
+    r"(?:\s+ge\s+(?P<ge>\d+))?(?:\s+le\s+(?P<le>\d+))?)?$",
+    re.IGNORECASE,
+)
 _PREFIX_DESCRIPTION = re.compile(
     r"^ip\s+prefix-list\s+(?P<name>\S+)\s+description\s+(?P<text>.+)$", re.IGNORECASE
 )
@@ -142,6 +149,7 @@ class CiscoConfigInterpreter:
         self._vlans: OrderedDict[int, VLAN] = OrderedDict()
         self._ospf: OrderedDict[tuple[str, str | None], OSPFProcess] = OrderedDict()
         self._bgp: BGPProcess | None = None
+        self._banners: list[Banner] = []
         self._route_maps: OrderedDict[str, dict[int, _EntryBuilder]] = OrderedDict()
         self._route_map_state: dict[str, RouteMap] = {}
         self.parsed_count = 0
@@ -157,7 +165,10 @@ class CiscoConfigInterpreter:
 
     @staticmethod
     def _last_line(node: ConfigNode) -> int:
-        return max([node.line_number] + [c.line_number for c in _walk(node)])
+        return max(
+            [node.line_number, node.end_line or 0]
+            + [max(c.line_number, c.end_line or 0) for c in _walk(node)]
+        )
 
     def _parsed(self, node: ConfigNode) -> None:
         node.semantic_status = SemanticStatus.PARSED
@@ -242,6 +253,7 @@ class CiscoConfigInterpreter:
             except _Reject as rejection:
                 self._reject(node, rejection.reason, invalid=rejection.invalid)
         self.document.prefix_lists = list(self._prefix_lists.values())
+        self.document.banners = list(self._banners)
         self.document.interfaces = list(self._interfaces.values())
         for name, trunk in self._interface_trunks.items():
             self._finish_trunk(self._interfaces[name], trunk)
@@ -274,8 +286,15 @@ class CiscoConfigInterpreter:
             self._ospf_block(node, tokens)
         elif not negated and words[:2] == ["router", "bgp"]:
             self._bgp_block(node, tokens)
-        elif not negated and words[:2] == ["ip", "prefix-list"]:
-            self._prefix_list(node)
+        elif words[0] == "banner":
+            self._banner(node, negated, tokens)
+        elif not negated and words[:3] == ["macro", "name"] and node.body_lines:
+            self._macro(node)
+        elif words[:2] == ["ip", "prefix-list"]:
+            if negated:
+                self._no_prefix_list(node)
+            else:
+                self._prefix_list(node)
         elif not negated and words[0] == "route-map":
             self._route_map(node)
         else:
@@ -826,7 +845,154 @@ class CiscoConfigInterpreter:
         else:
             raise _Reject("No semantic handler for this neighbor statement")
 
+    # ------------------------------------------------------ banner and macro
+    def _banner(self, node: ConfigNode, negated: bool, tokens: list[str]) -> None:
+        if negated:
+            if len(tokens) != 2:
+                raise _Reject("Unsupported 'no banner' form")
+            kind = tokens[1].casefold()
+            self._banners = [b for b in self._banners if b.kind.casefold() != kind]
+            self._parsed(node)
+            return
+        if node.end_line is None:
+            raise _Reject("banner without a delimiter and text", invalid=True)
+        if not node.terminated:
+            raise _Reject(
+                "Banner is missing its closing delimiter; the remaining lines "
+                "were consumed as banner text.",
+                invalid=True,
+            )
+        kind = tokens[1]
+        self._banners = [
+            b for b in self._banners if b.kind.casefold() != kind.casefold()
+        ]
+        self._banners.append(
+            Banner(
+                kind=kind,
+                text="\n".join(node.body_lines),
+                source_reference=self._reference(node.line_number, node.end_line),
+            )
+        )
+        self._parsed(node)
+
+    def _macro(self, node: ConfigNode) -> None:
+        if not node.terminated:
+            raise _Reject("Macro is missing its closing '@' line.", invalid=True)
+        raise _Reject("Macro bodies are preserved but not interpreted")
+
     # ------------------------------------------------------------ prefix-list
+    @staticmethod
+    def _prefix_fields(
+        prefix_text: str, ge_text: str | None, le_text: str | None
+    ) -> tuple[IPv4Network, int | None, int | None]:
+        prefix = IPv4Network(prefix_text, strict=True)
+        ge = int(ge_text) if ge_text else None
+        le = int(le_text) if le_text else None
+        if ge is not None and not prefix.prefixlen <= ge <= 32:
+            raise ValueError("ge must be between the prefix length and 32")
+        if le is not None and not prefix.prefixlen <= le <= 32:
+            raise ValueError("le must be between the prefix length and 32")
+        if ge is not None and le is not None and ge > le:
+            raise ValueError("ge cannot be greater than le")
+        return prefix, ge, le
+
+    def _no_prefix_list(self, node: ConfigNode) -> None:
+        """Apply 'no ip prefix-list ...' in file order against parsed state.
+
+        Removal is applied only when the target is found in the state built so
+        far. A missing or ambiguous target is never assumed away: the list is
+        marked incomplete and the line is reported.
+        """
+        body = node.command.split(None, 1)[1]
+        name_match = _PREFIX_NAME.match(body)
+        if name_match is None:
+            raise _Reject("Unsupported 'no ip prefix-list' form")
+        name = name_match.group("name")
+        if name.casefold() == "sequence-number":
+            raise _Reject("'ip prefix-list sequence-number' is not interpreted")
+        rest = body[name_match.end() :].strip()
+        words = rest.split()
+        if not rest:
+            if self._prefix_lists.pop(name, None) is None:
+                self._info(
+                    node,
+                    "PREFIX_LIST_NOT_IN_PARSED_STATE",
+                    f"Prefix-list {name} was not defined earlier in this input.",
+                )
+            self._parsed(node)
+            return
+        if words[0].casefold() == "description":
+            plist = self._prefix_lists.get(name)
+            if plist is not None:
+                plist.description = None
+            self._parsed(node)
+            return
+        match = _NO_PREFIX_ENTRY.fullmatch(rest)
+        if match is None or (not match.group("sequence") and not match.group("action")):
+            self._taint_prefix_list(name_match, node.line_number, "unsupported removal")
+            self._reject(
+                node,
+                "'no ip prefix-list' form is not supported.",
+                code="UNSUPPORTED_PREFIX_LIST_SYNTAX",
+                severity=IssueSeverity.ERROR,
+            )
+            return
+        wanted: tuple[IPv4Network, int | None, int | None] | None = None
+        if match.group("action"):
+            try:
+                wanted = self._prefix_fields(
+                    match.group("prefix"), match.group("ge"), match.group("le")
+                )
+            except ValueError as exc:
+                self._taint_prefix_list(name_match, node.line_number, str(exc))
+                self._reject(
+                    node,
+                    f"Invalid prefix-list removal: {exc}",
+                    invalid=True,
+                    code="INVALID_PREFIX_LIST_ENTRY",
+                )
+                return
+        plist = self._prefix_lists.get(name)
+        candidates = [
+            entry
+            for entry in (plist.entries if plist else [])
+            if self._removal_matches(entry, match, wanted)
+        ]
+        if plist is None or len(candidates) != 1:
+            why = (
+                "target entry not found in parsed state"
+                if not candidates
+                else "removal matches several entries"
+            )
+            self._taint_prefix_list(name_match, node.line_number, why)
+            self._reject(
+                node,
+                f"Prefix-list removal not applied: {why}.",
+                code="PREFIX_LIST_REMOVAL_UNRESOLVED",
+            )
+            return
+        plist.entries.remove(candidates[0])
+        self._parsed(node)
+
+    @staticmethod
+    def _removal_matches(
+        entry: PrefixListEntry,
+        match: re.Match[str],
+        wanted: tuple[IPv4Network, int | None, int | None] | None,
+    ) -> bool:
+        if match.group("sequence"):
+            if entry.sequence != int(match.group("sequence")):
+                return False
+        if wanted is not None:
+            prefix, ge, le = wanted
+            return (
+                entry.action == match.group("action").lower()
+                and entry.prefix == prefix
+                and entry.ge == ge
+                and entry.le == le
+            )
+        return True
+
     def _prefix_list(self, node: ConfigNode) -> None:
         command = node.command
         description = _PREFIX_DESCRIPTION.fullmatch(command)
@@ -849,15 +1015,9 @@ class CiscoConfigInterpreter:
             )
             return
         try:
-            prefix = IPv4Network(match.group("prefix"), strict=True)
-            ge = int(match.group("ge")) if match.group("ge") else None
-            le = int(match.group("le")) if match.group("le") else None
-            if ge is not None and not prefix.prefixlen <= ge <= 32:
-                raise ValueError("ge must be between the prefix length and 32")
-            if le is not None and not prefix.prefixlen <= le <= 32:
-                raise ValueError("le must be between the prefix length and 32")
-            if ge is not None and le is not None and ge > le:
-                raise ValueError("ge cannot be greater than le")
+            prefix, ge, le = self._prefix_fields(
+                match.group("prefix"), match.group("ge"), match.group("le")
+            )
         except ValueError as exc:
             self._taint_prefix_list(name_match, node.line_number, str(exc))
             self._reject(

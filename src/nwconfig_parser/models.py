@@ -343,6 +343,18 @@ class ConfigNode:
     raw_text: str
     children: list[ConfigNode] = field(default_factory=list)
     semantic_status: SemanticStatus = SemanticStatus.STRUCTURE_ONLY
+    # Set only for multi-line constructs (banner, macro) whose body is not
+    # indentation-structured. body_lines never become child commands.
+    end_line: int | None = None
+    body_lines: list[str] = field(default_factory=list)
+    terminated: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class Banner:
+    kind: str
+    text: str
+    source_reference: SourceReference | None = None
 
 
 @dataclass(slots=True)
@@ -359,4 +371,5 @@ class ConfigDocument:
     bgp_processes: list[BGPProcess] = field(default_factory=list)
     route_maps: list[RouteMap] = field(default_factory=list)
     unsupported_lines: list[UnsupportedConfigLine] = field(default_factory=list)
+    banners: list[Banner] = field(default_factory=list)
     references: list[ConfigReference] = field(default_factory=list)
