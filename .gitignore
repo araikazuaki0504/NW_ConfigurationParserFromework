@@ -1,0 +1,52 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / coverage output
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local environment files and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Real device captures and parser output must never be committed unsanitized.
+# Place sanitized, reviewed samples under tests/fixtures/ instead.
+captures/
+local_data/
+output/
+*.local.txt
+*.local.cfg
+
+tests/
+NWConfig汎用パーサフレームレート開発指示書.md
