@@ -49,5 +49,5 @@ output/
 *.local.cfg
 
 tests/
-NWConfig汎用パーサフレームレート開発指示書.md
+指示書/
 AGENTS.md

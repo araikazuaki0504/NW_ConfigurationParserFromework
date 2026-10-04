@@ -116,6 +116,9 @@ class Interface:
     trunk_vlans: list[int] = field(default_factory=list)
     channel_group: str | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
+    # None means no VRF assignment was seen in the input (not "default" by guess).
+    vrf: str | None = None
+    vrf_source_reference: SourceReference | None = None
 
 
 @dataclass(slots=True)
@@ -125,6 +128,22 @@ class VLAN:
     status: str | None = None
     interfaces: list[str] = field(default_factory=list)
     attributes: dict[str, Any] = field(default_factory=dict)
+
+
+class VrfScope(str, Enum):
+    """How certain a route/table VRF membership is.
+
+    DEFAULT: global/default table (no VRF named). NAMED: vendor VRF name known.
+    ID_ONLY: only a vendor VRF number is known. UNKNOWN: membership could not
+    be determined and must never be assumed to be default. MIXED: aggregate
+    table holding several VRFs (table level only).
+    """
+
+    DEFAULT = "DEFAULT"
+    NAMED = "NAMED"
+    ID_ONLY = "ID_ONLY"
+    UNKNOWN = "UNKNOWN"
+    MIXED = "MIXED"
 
 
 @dataclass(slots=True)
@@ -137,6 +156,12 @@ class Route:
     metric: int | None = None
     vrf: str | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
+    vrf_id: str | None = None
+    vrf_scope: VrfScope = VrfScope.DEFAULT
+
+    def __post_init__(self) -> None:
+        if self.vrf is not None and self.vrf_scope is VrfScope.DEFAULT:
+            self.vrf_scope = VrfScope.NAMED
 
 
 @dataclass(slots=True)
@@ -144,15 +169,27 @@ class RoutingTable:
     device: Device | None = None
     vrf: str | None = None
     routes: list[Route] = field(default_factory=list)
+    vrf_id: str | None = None
+    vrf_scope: VrfScope = VrfScope.DEFAULT
+    source_command: str | None = None
+    source_reference: SourceReference | None = None
+
+    def __post_init__(self) -> None:
+        if self.vrf is not None and self.vrf_scope is VrfScope.DEFAULT:
+            self.vrf_scope = VrfScope.NAMED
 
 
 @dataclass(slots=True)
 class VRF:
+    """A VRF definition. name and vrf_id are distinct vendor identifiers."""
+
     name: str
     description: str | None = None
     route_distinguisher: str | None = None
     interfaces: list[str] = field(default_factory=list)
     attributes: dict[str, Any] = field(default_factory=dict)
+    vrf_id: str | None = None
+    source_reference: SourceReference | None = None
 
 
 @dataclass(slots=True)
@@ -173,6 +210,7 @@ class OSPFProcess:
     interfaces: list[str] = field(default_factory=list)
     neighbors: list[OSPFNeighbor] = field(default_factory=list)
     attributes: dict[str, Any] = field(default_factory=dict)
+    vrf: str | None = None
 
 
 @dataclass(slots=True)
@@ -301,6 +339,18 @@ class BGPNetwork:
 
 
 @dataclass(slots=True)
+class BGPVrfAddressFamily:
+    """IPv4 address-family bound to one VRF; kept apart from global BGP state."""
+
+    vrf: str
+    peers: list[BGPPeer] = field(default_factory=list)
+    networks: list[BGPNetwork] = field(default_factory=list)
+    address_family: str = "ipv4"
+    source_reference: SourceReference | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class BGPProcess:
     asn: int
     router_id: IPv4Address | None = None
@@ -308,6 +358,7 @@ class BGPProcess:
     networks: list[BGPNetwork] = field(default_factory=list)
     address_families: list[str] = field(default_factory=list)
     attributes: dict[str, Any] = field(default_factory=dict)
+    vrf_address_families: list[BGPVrfAddressFamily] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,6 +417,7 @@ class ConfigDocument:
     interfaces: list[Interface] = field(default_factory=list)
     vlans: list[VLAN] = field(default_factory=list)
     ip_routing: bool | None = None
+    vrfs: list[VRF] = field(default_factory=list)
     static_routes: list[Route] = field(default_factory=list)
     ospf_processes: list[OSPFProcess] = field(default_factory=list)
     bgp_processes: list[BGPProcess] = field(default_factory=list)

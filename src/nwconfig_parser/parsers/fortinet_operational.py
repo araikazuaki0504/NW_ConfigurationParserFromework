@@ -20,7 +20,9 @@ class FortinetRoutingTableAllParser(ZebraStyleRouteParser):
     vendor = "Fortinet"
     os_family = "FortiOS"
     command = "get router info routing-table all"
-    heading_patterns = (re.compile(r"Routing table for VRF=\d+"),)
+    # Only the numeric VRF ID is printed; FortiOS ID 0 is not assumed default.
+    vrf_heading = re.compile(r"Routing table for VRF=(?P<id>\d+)")
+    vrf_heading_loose = re.compile(r"Routing table for VRF", re.IGNORECASE)
 
 
 class FortinetSystemInterfaceParser(OperationalParser):

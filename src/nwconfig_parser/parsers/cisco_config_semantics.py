@@ -15,10 +15,12 @@ from ipaddress import AddressValueError, IPv4Address, IPv4Interface, IPv4Network
 
 from nwconfig_parser.models import (
     VLAN,
+    VRF,
     Banner,
     BGPNetwork,
     BGPPeer,
     BGPProcess,
+    BGPVrfAddressFamily,
     ConfigDocument,
     ConfigNode,
     ConfigReference,
@@ -60,6 +62,9 @@ _ROUTE_MAP_HEADER = re.compile(
     re.IGNORECASE,
 )
 _INTERFACE_NAME = re.compile(r"^[A-Za-z][A-Za-z-]*\d[\w/.:-]*$")
+_ROUTE_DISTINGUISHER = re.compile(
+    r"^(?:\d+|\d+\.\d+|(?:\d{1,3}\.){3}\d{1,3}):\d+$",
+)
 _VLAN_LIST = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 
 
@@ -127,6 +132,13 @@ class _TrunkState:
 
 
 @dataclass(slots=True)
+class _BgpScope:
+    family: str
+    vrf: str | None
+    target: BGPProcess | BGPVrfAddressFamily
+
+
+@dataclass(slots=True)
 class _EntryBuilder:
     action: str
     reference: SourceReference
@@ -150,6 +162,7 @@ class CiscoConfigInterpreter:
         self._ospf: OrderedDict[tuple[str, str | None], OSPFProcess] = OrderedDict()
         self._bgp: BGPProcess | None = None
         self._banners: list[Banner] = []
+        self._vrfs: OrderedDict[str, VRF] = OrderedDict()
         self._route_maps: OrderedDict[str, dict[int, _EntryBuilder]] = OrderedDict()
         self._route_map_state: dict[str, RouteMap] = {}
         self.parsed_count = 0
@@ -254,7 +267,12 @@ class CiscoConfigInterpreter:
                 self._reject(node, rejection.reason, invalid=rejection.invalid)
         self.document.prefix_lists = list(self._prefix_lists.values())
         self.document.banners = list(self._banners)
+        self.document.vrfs = list(self._vrfs.values())
         self.document.interfaces = list(self._interfaces.values())
+        for interface in self.document.interfaces:
+            definition = self._vrfs.get(interface.vrf or "")
+            if definition is not None:
+                definition.interfaces.append(interface.name)
         for name, trunk in self._interface_trunks.items():
             self._finish_trunk(self._interfaces[name], trunk)
         self.document.vlans = sorted(self._vlans.values(), key=lambda v: v.vlan_id)
@@ -277,6 +295,12 @@ class CiscoConfigInterpreter:
             self._interface(node, tokens)
         elif not negated and words[0] == "vlan":
             self._vlan(node, tokens)
+        elif not negated and words[:2] == ["vrf", "definition"]:
+            self._vrf_definition(node, tokens, legacy=False)
+        elif not negated and words[:2] == ["ip", "vrf"]:
+            self._vrf_definition(node, tokens, legacy=True)
+        elif negated and words[:2] in (["vrf", "definition"], ["ip", "vrf"]):
+            self._no_vrf_definition(node, tokens)
         elif words[:2] == ["ip", "routing"] and len(words) == 2:
             self.document.ip_routing = not negated
             self._parsed(node)
@@ -352,6 +376,12 @@ class CiscoConfigInterpreter:
                     "statement": "no shutdown" if negated else "shutdown",
                 }
             )
+        elif words[:2] == ["vrf", "forwarding"] or words[:3] == [
+            "ip",
+            "vrf",
+            "forwarding",
+        ]:
+            self._interface_vrf(interface, node, negated, tokens)
         elif words[:2] == ["ip", "address"]:
             self._interface_ip(interface, negated, tokens[2:])
         elif words == ["switchport"]:
@@ -576,6 +606,142 @@ class CiscoConfigInterpreter:
                 )
         self._parsed(node)
 
+    # -------------------------------------------------------------------- vrf
+    def _warn(self, node: ConfigNode, code: str, message: str) -> None:
+        self.issues.append(
+            ParseIssue(
+                severity=IssueSeverity.WARNING,
+                code=code,
+                message=message,
+                line_number=node.line_number,
+                source_reference=self._reference(node.line_number),
+            )
+        )
+
+    def _interface_vrf(
+        self,
+        interface: Interface,
+        node: ConfigNode,
+        negated: bool,
+        tokens: list[str],
+    ) -> None:
+        args = tokens[2:] if tokens[0].casefold() == "vrf" else tokens[3:]
+        if len(args) > 1 or (not negated and len(args) != 1):
+            raise _Reject("vrf forwarding requires exactly one VRF name", invalid=True)
+        if negated:
+            if args and interface.vrf != args[0]:
+                self._info(node, "NO_MATCHING_VRF", "Interface was not in that VRF.")
+                return
+            interface.vrf = None
+            interface.vrf_source_reference = None
+            return
+        if interface.ipv4_addresses and interface.vrf != args[0]:
+            # A device removes IPv4 addresses when the VRF changes; replaying
+            # change commands is not implemented, so flag the uncertainty.
+            interface.attributes["address_validity_uncertain"] = True
+            self._warn(
+                node,
+                "VRF_ASSIGNMENT_AFTER_IP_ADDRESS",
+                "vrf forwarding follows ip address; a device would remove the "
+                "address. Address validity is uncertain (change-command replay "
+                "is not implemented).",
+            )
+        interface.vrf = args[0]
+        interface.vrf_source_reference = self._reference(node.line_number)
+
+    def _no_vrf_definition(self, node: ConfigNode, tokens: list[str]) -> None:
+        if len(tokens) != 3:
+            raise _Reject("VRF definition requires exactly one name", invalid=True)
+        if self._vrfs.pop(tokens[2], None) is None:
+            self._info(node, "NO_MATCHING_VRF", "No earlier VRF definition.")
+        self._parsed(node)
+
+    def _vrf_definition(
+        self, node: ConfigNode, tokens: list[str], *, legacy: bool
+    ) -> None:
+        if len(tokens) != 3:
+            raise _Reject("VRF definition requires exactly one name", invalid=True)
+        name = tokens[2]
+        vrf = self._vrfs.setdefault(
+            name, VRF(name=name, source_reference=self._reference(node.line_number))
+        )
+        styles = vrf.attributes.setdefault("definition_styles", [])
+        style = "ip vrf" if legacy else "vrf definition"
+        if style not in styles:
+            styles.append(style)
+        self._parsed(node)
+        self._vrf_children(vrf, node)
+
+    def _vrf_children(self, vrf: VRF, parent: ConfigNode) -> None:
+        for child in parent.children:
+            try:
+                self._vrf_child(vrf, child)
+            except _Reject as rejection:
+                self._reject(
+                    child, rejection.reason, invalid=rejection.invalid, parent=parent
+                )
+
+    def _vrf_child(self, vrf: VRF, node: ConfigNode) -> None:
+        negated, tokens = _split(node)
+        words = [token.casefold() for token in tokens]
+        if not tokens:
+            raise _Reject("Empty statement")
+        if words[0] == "address-family":
+            if negated or words[1:] not in (["ipv4"], ["ipv4", "unicast"]):
+                raise _Reject("Only VRF address-family ipv4 is supported")
+            self._parsed(node)
+            self._vrf_children(vrf, node)
+            return
+        if node.children:
+            raise _Reject("Nested block inside VRF statement is not supported")
+        if words[0] == "description":
+            text = node.command.split(None, 2 if negated else 1)[-1]
+            if negated:
+                vrf.description = None
+            elif len(tokens) < 2:
+                raise _Reject("description requires text", invalid=True)
+            else:
+                vrf.description = text
+        elif words[0] == "rd":
+            if negated:
+                vrf.route_distinguisher = None
+            elif len(tokens) == 2 and _ROUTE_DISTINGUISHER.fullmatch(tokens[1]):
+                vrf.route_distinguisher = tokens[1]
+            else:
+                raise _Reject("Invalid route distinguisher", invalid=True)
+        elif words[0] == "route-target":
+            self._route_target(vrf, node, negated, tokens)
+        elif words == ["exit-address-family"] and not negated:
+            pass
+        else:
+            raise _Reject("No semantic handler for this VRF statement")
+        self._parsed(node)
+
+    @staticmethod
+    def _route_target(
+        vrf: VRF, node: ConfigNode, negated: bool, tokens: list[str]
+    ) -> None:
+        args = tokens[1:]
+        if len(args) == 1:
+            args = ["both", *args]
+        if (
+            len(args) != 2
+            or args[0].casefold() not in {"import", "export", "both"}
+            or _ROUTE_DISTINGUISHER.fullmatch(args[1]) is None
+        ):
+            raise _Reject("Invalid route-target statement", invalid=True)
+        entries: list[dict[str, object]] = vrf.attributes.setdefault(
+            "route_targets", []
+        )
+        direction, value = args[0].casefold(), args[1]
+        entries[:] = [
+            e for e in entries if (e["direction"], e["value"]) != (direction, value)
+        ]
+        if not negated:
+            entries.append(
+                {"direction": direction, "value": value, "line": node.line_number}
+            )
+
     # ------------------------------------------------------------------- ospf
     def _ospf_block(self, node: ConfigNode, tokens: list[str]) -> None:
         vrf: str | None = None
@@ -588,6 +754,7 @@ class CiscoConfigInterpreter:
             (process_id, vrf), OSPFProcess(process_id=process_id)
         )
         process.attributes.setdefault("vrf", vrf)
+        process.vrf = vrf
         statements = process.attributes.setdefault("network_statements", [])
         passive = process.attributes.setdefault("passive_interfaces", [])
         active = process.attributes.setdefault("non_passive_interfaces", [])
@@ -680,7 +847,11 @@ class CiscoConfigInterpreter:
             self._bgp_child(bgp, node, child, scope=None)
 
     def _bgp_child(
-        self, bgp: BGPProcess, parent: ConfigNode, node: ConfigNode, scope: str | None
+        self,
+        bgp: BGPProcess,
+        parent: ConfigNode,
+        node: ConfigNode,
+        scope: _BgpScope | None,
     ) -> None:
         try:
             self._bgp_statement(bgp, node, scope)
@@ -690,7 +861,7 @@ class CiscoConfigInterpreter:
             )
 
     def _bgp_statement(
-        self, bgp: BGPProcess, node: ConfigNode, scope: str | None
+        self, bgp: BGPProcess, node: ConfigNode, scope: _BgpScope | None
     ) -> None:
         negated, tokens = _split(node)
         words = [token.casefold() for token in tokens]
@@ -702,32 +873,53 @@ class CiscoConfigInterpreter:
         if words[0] == "address-family" and not negated:
             if scope is not None:
                 raise _Reject("Nested address-family is not supported")
-            if words[1:] not in (["ipv4"], ["ipv4", "unicast"]):
-                raise _Reject(
-                    "Only 'address-family ipv4 [unicast]' is supported", invalid=False
+            spec = words[1:]
+            if spec[:2] == ["ipv4", "unicast"]:
+                spec = ["ipv4", *spec[2:]]
+            new_scope: _BgpScope
+            if spec == ["ipv4"]:
+                if "ipv4" not in bgp.address_families:
+                    bgp.address_families.append("ipv4")
+                new_scope = _BgpScope("ipv4", None, bgp)
+            elif len(spec) == 3 and spec[:2] == ["ipv4", "vrf"]:
+                vrf_name = tokens[-1]
+                vrf_family = next(
+                    (a for a in bgp.vrf_address_families if a.vrf == vrf_name), None
                 )
-            if "ipv4" not in bgp.address_families:
-                bgp.address_families.append("ipv4")
+                if vrf_family is None:
+                    vrf_family = BGPVrfAddressFamily(
+                        vrf=vrf_name,
+                        source_reference=self._reference(node.line_number),
+                    )
+                    bgp.vrf_address_families.append(vrf_family)
+                new_scope = _BgpScope(f"ipv4 vrf {vrf_name}", vrf_name, vrf_family)
+            else:
+                raise _Reject(
+                    "Only 'address-family ipv4 [unicast] [vrf NAME]' is supported"
+                )
             self._parsed(node)
             for child in node.children:
-                self._bgp_child(bgp, node, child, scope="ipv4")
+                self._bgp_child(bgp, node, child, scope=new_scope)
             return
         if node.children:
             raise _Reject("Nested block inside router bgp is not supported")
-        family = scope or "global"
+        family = scope.family if scope else "global"
+        target = scope.target if scope else bgp
         if words[:2] == ["bgp", "router-id"] and not negated and len(tokens) == 3:
+            if scope is not None and scope.vrf is not None:
+                raise _Reject("bgp router-id inside a VRF address-family")
             bgp.router_id = _address(tokens[2])
         elif words[0] == "network":
-            self._bgp_network(bgp, node, negated, tokens, family)
+            self._bgp_network(target, node, negated, tokens, family)
         elif words[0] == "neighbor" and len(tokens) >= 3:
-            self._bgp_neighbor(bgp, node, negated, tokens, family)
+            self._bgp_neighbor(bgp, target, node, negated, tokens, family)
         else:
             raise _Reject("No semantic handler for this router bgp statement")
         self._parsed(node)
 
     def _bgp_network(
         self,
-        bgp: BGPProcess,
+        bgp: BGPProcess | BGPVrfAddressFamily,
         node: ConfigNode,
         negated: bool,
         tokens: list[str],
@@ -772,7 +964,7 @@ class CiscoConfigInterpreter:
                     line_number=node.line_number,
                 )
             )
-        if family == "global":
+        if family == "global" and isinstance(bgp, BGPProcess):
             bgp.attributes.setdefault("global_network_lines", []).append(
                 node.line_number
             )
@@ -780,6 +972,7 @@ class CiscoConfigInterpreter:
     def _bgp_neighbor(
         self,
         bgp: BGPProcess,
+        target: BGPProcess | BGPVrfAddressFamily,
         node: ConfigNode,
         negated: bool,
         tokens: list[str],
@@ -788,10 +981,10 @@ class CiscoConfigInterpreter:
         if not _is_ipv4(tokens[1]):
             raise _Reject("Only IPv4 neighbor addresses are supported (no peer-groups)")
         address = IPv4Address(tokens[1])
-        peer = next((p for p in bgp.peers if p.neighbor_address == address), None)
+        peer = next((p for p in target.peers if p.neighbor_address == address), None)
         if peer is None:
             peer = BGPPeer(neighbor_address=address, local_as=bgp.asn)
-            bgp.peers.append(peer)
+            target.peers.append(peer)
         option = tokens[2].casefold()
         args = tokens[3:]
         if option == "remote-as" and not negated and len(args) == 1:
@@ -808,11 +1001,11 @@ class CiscoConfigInterpreter:
             peer.attributes["shutdown"] = not negated
         elif option == "activate" and not args:
             active = peer.attributes.setdefault("activated_address_families", [])
-            target = "ipv4"
+            af_name = family if family != "global" else "ipv4"
             if negated:
-                _discard(active, target)
-            elif target not in active:
-                active.append(target)
+                _discard(active, af_name)
+            elif af_name not in active:
+                active.append(af_name)
         elif option in {"route-map", "prefix-list"} and len(args) == 2:
             direction = args[1].casefold()
             if direction not in {"in", "out"}:
@@ -1168,6 +1361,44 @@ class CiscoConfigInterpreter:
         self.document.route_maps = maps
 
     # ------------------------------------------------------------- references
+    def _vrf_references(self) -> list[ConfigReference]:
+        defined = set(self._vrfs)
+        refs: list[ConfigReference] = []
+
+        def add(source_type: str, source_name: str, vrf: str, line: int | None) -> None:
+            refs.append(
+                ConfigReference(
+                    source_type, source_name, "vrf", "vrf", vrf, line, vrf in defined
+                )
+            )
+
+        for interface in self.document.interfaces:
+            if interface.vrf is not None:
+                ref = interface.vrf_source_reference
+                add(
+                    "interface",
+                    interface.name,
+                    interface.vrf,
+                    ref.start_line if ref else None,
+                )
+        for route in self.document.static_routes:
+            if route.vrf is not None:
+                line = route.attributes.get("line_number")
+                add("static-route", str(route.network), route.vrf, line)
+        for process in self.document.ospf_processes:
+            if process.vrf is not None:
+                add("ospf-process", f"ospf {process.process_id}", process.vrf, None)
+        for bgp in self.document.bgp_processes:
+            for family in bgp.vrf_address_families:
+                ref = family.source_reference
+                add(
+                    "bgp-address-family",
+                    f"AS{bgp.asn}/ipv4 vrf {family.vrf}",
+                    family.vrf,
+                    ref.start_line if ref else None,
+                )
+        return refs
+
     def _build_references(self) -> None:
         prefix_names = {p.name for p in self.document.prefix_lists}
         map_names = {m.name for m in self.document.route_maps}
@@ -1206,41 +1437,58 @@ class CiscoConfigInterpreter:
                         )
                     )
         for bgp in self.document.bgp_processes:
-            for peer in bgp.peers:
-                for binding in peer.attributes.get("policy_bindings", []):
-                    kind = binding["type"]
-                    target_type = "route-map" if kind == "route-map" else "prefix-list"
-                    names = map_names if kind == "route-map" else prefix_names
-                    references.append(
-                        ConfigReference(
-                            "bgp-neighbor",
-                            f"AS{bgp.asn}/{peer.neighbor_address}",
-                            f"{kind}-{binding['direction']}",
-                            target_type,
-                            binding["name"],
-                            binding["line"],
-                            binding["name"] in names,
+            peer_groups: list[tuple[str, list[BGPPeer]]] = [("", bgp.peers)]
+            peer_groups += [
+                (f"/vrf {a.vrf}", a.peers) for a in bgp.vrf_address_families
+            ]
+            for suffix, peers in peer_groups:
+                for peer in peers:
+                    for binding in peer.attributes.get("policy_bindings", []):
+                        kind = binding["type"]
+                        target_type = (
+                            "route-map" if kind == "route-map" else "prefix-list"
                         )
-                    )
-            for network in bgp.networks:
-                if network.route_map is not None:
-                    references.append(
-                        ConfigReference(
-                            "bgp-network",
-                            f"AS{bgp.asn}/{network.network}",
-                            "route-map",
-                            "route-map",
-                            network.route_map,
-                            network.line_number,
-                            network.route_map in map_names,
+                        names = map_names if kind == "route-map" else prefix_names
+                        references.append(
+                            ConfigReference(
+                                "bgp-neighbor",
+                                f"AS{bgp.asn}{suffix}/{peer.neighbor_address}",
+                                f"{kind}-{binding['direction']}",
+                                target_type,
+                                binding["name"],
+                                binding["line"],
+                                binding["name"] in names,
+                            )
                         )
-                    )
+            network_groups = [("", bgp.networks)]
+            network_groups += [
+                (f"/vrf {a.vrf}", a.networks) for a in bgp.vrf_address_families
+            ]
+            for suffix, networks in network_groups:
+                for network in networks:
+                    if network.route_map is not None:
+                        references.append(
+                            ConfigReference(
+                                "bgp-network",
+                                f"AS{bgp.asn}{suffix}/{network.network}",
+                                "route-map",
+                                "route-map",
+                                network.route_map,
+                                network.line_number,
+                                network.route_map in map_names,
+                            )
+                        )
+        references.extend(self._vrf_references())
         for reference in references:
             if reference.resolved is False:
                 self.issues.append(
                     ParseIssue(
                         severity=IssueSeverity.INFO,
-                        code="DANGLING_REFERENCE",
+                        code=(
+                            "VRF_DEFINITION_NOT_IN_INPUT"
+                            if reference.target_type == "vrf"
+                            else "DANGLING_REFERENCE"
+                        ),
                         message=(
                             f"{reference.source_type} {reference.source_name} "
                             f"references undefined {reference.target_type} "

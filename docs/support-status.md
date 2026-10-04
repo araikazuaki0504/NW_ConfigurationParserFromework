@@ -21,6 +21,9 @@ Status vocabulary: `IMPLEMENTED`, `TESTED_WITH_SYNTHETIC_DATA`, `VERIFIED_WITH_D
 | Operational parser | HPE / Comware | `display interface` (Comware 7 style) | TESTED_WITH_SYNTHETIC_DATA | `Administratively DOWN` sets admin_status only; UP/DOWN sets operational_status only; other fields (counters, media) are reported as issues |
 | Operational parser | HPE / Comware | `display vlan` | NOT_IMPLEMENTED | Outside Phase 4 priority |
 | Operational parser | ArubaOS-Switch, ArubaOS-CX | No command parser registered | NOT_IMPLEMENTED | Requires command selection and representative output |
+| VRF / per-VRF routing | Cisco / IOS, IOS XE | Config VRF definition, interface `vrf forwarding`, `ip route vrf`, OSPF `vrf`, BGP `address-family ipv4 vrf`; `show ip route vrf <name\|*>`; per-VRF route queries and diff | TESTED_WITH_SYNTHETIC_DATA | See [vrf-support.md](vrf-support.md); IPv6 VRF and change-command replay not implemented |
+| VRF / per-VRF routing | Fortinet / FortiOS; HPE / Comware | `Routing table for VRF=<n>` headings (ID only); `display ip routing-table vpn-instance <name>` | TESTED_WITH_SYNTHETIC_DATA | Partial: operational routes only, no config parser; FortiOS VRF ID 0 not assumed default |
+| VRF / per-VRF routing | NX-OS, Yamaha, A10, ArubaOS-CX, ArubaOS-Switch | VRF | NOT_IMPLEMENTED | No VRF claim made |
 | Device-output verification | All | Real device captures | NOT_IMPLEMENTED | No verified captures supplied |
 | IPv6 and LLDP | All | Excluded features | NOT_IMPLEMENTED | Explicitly out of scope |
 

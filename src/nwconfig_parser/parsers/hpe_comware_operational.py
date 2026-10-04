@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from ipaddress import IPv4Address, IPv4Interface, IPv4Network
 
-from nwconfig_parser.models import Interface, Route, RoutingTable
+from nwconfig_parser.models import Interface, Route, RoutingTable, VrfScope
 from nwconfig_parser.parsers.operational_base import Collector, OperationalParser
 from nwconfig_parser.utilities import normalize_mac_address
 
@@ -89,6 +89,45 @@ class HpeComwareDisplayIpRoutingTableParser(OperationalParser):
         else:
             route.next_hops.append(IPv4Address(next_hop))
         return route
+
+
+_VPN_COMMAND = re.compile(
+    r"^display\s+ip\s+routing-table\s+vpn-instance\s+(?P<name>\S+)\s*$",
+    re.IGNORECASE,
+)
+_VPN_HEADING = re.compile(r"^Routing Tables:\s*(?P<name>\S+)\s*$")
+
+
+class HpeComwareDisplayIpRoutingTableVpnParser(HpeComwareDisplayIpRoutingTableParser):
+    """``display ip routing-table vpn-instance <name>`` (single VPN instance)."""
+
+    command = "display ip routing-table vpn-instance *"
+
+    def matches_command(self, command: str) -> bool:
+        return _VPN_COMMAND.fullmatch(" ".join(command.split())) is not None
+
+    def parse_lines(self, lines: list[str], collector: Collector) -> RoutingTable:
+        table = super().parse_lines(lines, collector)
+        match = _VPN_COMMAND.fullmatch(" ".join(collector.command.split()))
+        requested = match.group("name") if match else None
+        mismatch = False
+        for number, raw in enumerate(lines, start=1):
+            heading = _VPN_HEADING.fullmatch(raw.strip())
+            if heading is not None and heading.group("name") != requested:
+                mismatch = True
+                collector.issue(
+                    number,
+                    "VRF_HEADING_MISMATCH",
+                    f"Heading names {heading.group('name')!r} but the command "
+                    f"requested {requested!r}; VRF membership is not assigned.",
+                )
+        name = None if mismatch else requested
+        scope = VrfScope.NAMED if name else VrfScope.UNKNOWN
+        table.vrf, table.vrf_scope = name, scope
+        table.source_command = collector.command
+        for route in table.routes:
+            route.vrf, route.vrf_scope = name, scope
+        return table
 
 
 _NAME = re.compile(r"^[A-Za-z][\w-]*\d[\w/.:-]*$")

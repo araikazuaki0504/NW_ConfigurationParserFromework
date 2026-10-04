@@ -50,7 +50,7 @@ class ParserRegistry:
             for parser in self._parsers
             if _normalize(parser.vendor) == _normalize(context.vendor)
             and _normalize(parser.os_family) == _normalize(context.os_family)
-            and _normalize(parser.command) == _normalize(context.command)
+            and parser.matches_command(context.command)
             and (
                 not parser.supported_versions
                 or (

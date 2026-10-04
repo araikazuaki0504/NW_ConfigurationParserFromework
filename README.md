@@ -116,6 +116,10 @@ mypy
 
 合成テスト入力は`tests/fixtures/synthetic/`にあります。アドレス、ホスト名、認証情報、その他の機密情報を無害化せずに実機の取得データを追加しないでください。
 
+## VRF対応
+
+Cisco IOS/IOS XEを基準実装として、VRF定義・インターフェースVRF割当・VRF別static route/OSPF/BGP、`show ip route vrf`、VRF別経路検索・差分に対応しています。FortiOS（VRF IDのみ）とComware（`vpn-instance`、運用出力のみ）は部分対応で、その他は未実装です。すべて合成データによる検証のみです。詳細は[docs/vrf-support.md](docs/vrf-support.md)を参照してください。
+
 ## 対応範囲と制限事項
 
 IOSおよびIOS XEのレジストリキーで実装済みの運用コマンドは`show ip route`、`show interfaces status`、`show ip interface brief`、`show vlan brief`です。未対応の行形式は黙って破棄せず報告します。受け付ける形式と制限事項は[docs/support-status.md](docs/support-status.md)を参照してください。

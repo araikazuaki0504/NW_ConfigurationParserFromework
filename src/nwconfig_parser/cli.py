@@ -21,6 +21,7 @@ from nwconfig_parser.parsers.a10_operational import (
 from nwconfig_parser.parsers.base import ParseContext, ParserSelectionError
 from nwconfig_parser.parsers.cisco_config import CiscoConfigParser
 from nwconfig_parser.parsers.cisco_operational import CiscoOperationalParser
+from nwconfig_parser.parsers.cisco_vrf_operational import CiscoShowIpRouteVrfParser
 from nwconfig_parser.parsers.example import ExampleTextParser
 from nwconfig_parser.parsers.fortinet_operational import (
     FortinetRoutingTableAllParser,
@@ -29,6 +30,7 @@ from nwconfig_parser.parsers.fortinet_operational import (
 from nwconfig_parser.parsers.hpe_comware_operational import (
     HpeComwareDisplayInterfaceParser,
     HpeComwareDisplayIpRoutingTableParser,
+    HpeComwareDisplayIpRoutingTableVpnParser,
 )
 from nwconfig_parser.parsers.registry import ParserRegistry
 from nwconfig_parser.parsers.yamaha_operational import YamahaShowIpRouteParser
@@ -57,6 +59,7 @@ def build_registry() -> ParserRegistry:
             "show vlan brief",
         ):
             registry.register(CiscoOperationalParser(command, os_family))
+        registry.register(CiscoShowIpRouteVrfParser(os_family))
     for parser_class in (
         YamahaShowIpRouteParser,
         FortinetRoutingTableAllParser,
@@ -65,6 +68,7 @@ def build_registry() -> ParserRegistry:
         A10ShowInterfacesParser,
         HpeComwareDisplayIpRoutingTableParser,
         HpeComwareDisplayInterfaceParser,
+        HpeComwareDisplayIpRoutingTableVpnParser,
     ):
         registry.register(parser_class())
     return registry

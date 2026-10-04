@@ -26,6 +26,17 @@ class Parser(ABC):
     parser_version: str = "1"
     implementation_status: ImplementationStatus = ImplementationStatus.IMPLEMENTED
 
+    def matches_command(self, command: str) -> bool:
+        """Return whether this parser handles the (whitespace-normalised) command.
+
+        The default is exact, case-insensitive equality with ``command``.
+        Parsers whose command carries an argument (for example a VRF name)
+        override this; ``command`` stays the unique registration key.
+        """
+        return " ".join(self.command.casefold().split()) == " ".join(
+            command.casefold().split()
+        )
+
     @abstractmethod
     def parse(self, text: str, context: ParseContext) -> ParseResult:
         """Parse input and preserve partial successes and source references."""
