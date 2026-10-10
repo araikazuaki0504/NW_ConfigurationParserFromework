@@ -11,7 +11,7 @@ here is device-verified. Cisco IOS / IOS XE is the reference implementation.
 | Cisco IOS, IOS XE | Config: `vrf definition` / `ip vrf` (description, `rd`, `route-target`, `address-family ipv4`), `vrf forwarding` / `ip vrf forwarding`, `ip route vrf` (and `no`), `router ospf N vrf X`, BGP `address-family ipv4 [unicast] vrf X` (neighbors, networks, route-map / prefix-list bindings) | TESTED_WITH_SYNTHETIC_DATA | `address-family ipv6`, other BGP families (vpnv4 etc.), `bgp router-id` inside a VRF family, VRF-aware OSPF area/passive details beyond existing OSPF support: preserved as unsupported lines |
 | Cisco IOS, IOS XE | Operational: `show ip route vrf <name>` and `show ip route vrf *` | TESTED_WITH_SYNTHETIC_DATA | Heading format `Routing Table: NAME` is from general knowledge. A literal VRF called `default` is treated as an ordinary name, never as the global table. Route-line grammar is that of `show ip route` (e.g. "is variably subnetted" lines are reported as unsupported) |
 | Fortinet FortiOS | Operational: `Routing table for VRF=<n>` headings in `get router info routing-table all` | TESTED_WITH_SYNTHETIC_DATA (partial) | Only the numeric VRF ID is known (`vrf_scope=ID_ONLY`, `vrf_id`, `vrf=None`). ID 0 is **not** declared the default VRF. Name-to-ID mapping and FortiOS config are not implemented |
-| HPE Comware | Operational: `display ip routing-table vpn-instance <name>` | TESTED_WITH_SYNTHETIC_DATA (partial) | Config parser not implemented. Plain `display ip routing-table` stays default scope |
+| HPE Comware | Operational: `display ip routing-table vpn-instance <name>`; config: `ip vpn-instance`, `ip binding vpn-instance`, `ip route-static vpn-instance` (see [vendor-config-support.md](vendor-config-support.md)) | TESTED_WITH_SYNTHETIC_DATA (partial) | Config VRF names and VPN-instance-view `route-distinguisher`; address-family RD unsupported. Plain `display ip routing-table` stays default scope |
 | Cisco NX-OS | VRF config / operational | NOT_IMPLEMENTED | No NX-OS parser |
 | Yamaha RTX, A10 ACOS | VRF / partition | NOT_IMPLEMENTED | No VRF claim is made; routes keep default scope |
 | ArubaOS-CX, ArubaOS-Switch | VRF | NOT_IMPLEMENTED | No parser registered |
@@ -80,7 +80,7 @@ and returns `list[RoutingTable]`.
 
 ## Not implemented / unverified
 
-NX-OS, Yamaha, A10 partitions, Aruba, Comware config; IPv6 VRF
+NX-OS, Yamaha, A10 partitions, Aruba, FortiOS config VRF, Comware address-family RD; IPv6 VRF
 (`address-family ipv6`); route-leaking analysis (import/export of
 route-targets is recorded, not evaluated); `show ip route vrf X <prefix>`
 forms; real-device verification.
