@@ -1,4 +1,4 @@
-# NWConfig Parser
+# NW Config Parser
 
 各ベンダーのネットワーク機器から取得したコマンド出力を解析し、表記・構文・データ構造の違いを吸収して、共通の型付きデータモデルへ変換するPythonライブラリです。
 
@@ -135,11 +135,3 @@ nwconfig-parser validate --vendor Cisco --os "IOS XE" --command running-config -
 ```
 
 `python -m nwconfig_parser`でも実行できます。`--output`を省略するとJSONを標準出力へ出します。`--os-family`は`--os`の別名です。終了コードは`SUCCESS`が0、`PARTIAL_SUCCESS`が1、`FAILED`またはCLIエラーが2です。`validate`は解析の完全性を確認するもので、実機の動作確認ではありません。
-
-## 検証状況とサンプル
-
-現時点のテスト入力は合成データで、実機検証済みではありません。公式資料の確認と合成テストと実機検証を区別して記録します。
-
-テスト用入力は`tests/config/`と`tests/fixtures/synthetic/`にあります。共有用データは機密情報を除去してください。
-
-- [テスト用configの説明](tests/config/README.md)
