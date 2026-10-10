@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nwconfig-parser"
 version = "0.1.0"
-description = "Extensible parsers for network device configurations and command output"
+description = "各ベンダーのネットワーク機器のコマンド出力を共通データモデルへ変換するPythonライブラリ"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
