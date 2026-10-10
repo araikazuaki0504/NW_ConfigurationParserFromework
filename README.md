@@ -78,8 +78,10 @@ path = Path("tests/config/cisco_ios_xe_vrf_running_config.cfg")
 result = engine.parse(
     path.read_text(encoding="utf-8"),
     ParseContext(
-        vendor="Cisco", os_family="IOS XE",
-        command="running-config", filename=str(path),
+        vendor="Cisco",
+        os_family="IOS XE",
+        command="running-config",
+        filename=str(path),
     ),
 )
 
@@ -101,6 +103,7 @@ if isinstance(result.data, ConfigDocument):
 |---|---|---|
 | Cisco / IOS・IOS XE | `show ip route`、`show ip route vrf <名前または*>`、`show interfaces status`、`show ip interface brief`、`show vlan brief` | `running-config` |
 | Yamaha / RTX | `show ip route` | `show config` |
+| Yamaha / SWX | `show interface brief`、`show vlan brief`、`show ip route`、`show ip interface brief` | `show running-config` |
 | Fortinet / FortiOS | `get router info routing-table all`、`get system interface` | `show` |
 | A10 / ACOS | `show ip route`、`show interfaces` | `show running-config` |
 | HPE / Comware | `display ip routing-table`、`display ip routing-table vpn-instance <名前>`、`display interface` | `display current-configuration` |
@@ -108,6 +111,18 @@ if isinstance(result.data, ConfigDocument):
 コマンドが登録されていても、その全構文・全出力形式に対応するわけではありません。詳細は[設定パーサの対応表](docs/vendor-config-support.md)、[サポート状況](docs/support-status.md)、[VRF対応表](docs/vrf-support.md)を参照してください。詳細の調査記録には英語の文書もあります。
 
 Cisco NX-OS、ArubaOS-CX、ArubaOS-Switchのパーサは未登録です。IPv6とLLDPは対象外です。機器接続やコマンド実行は行わず、取得済みのテキストを入力にします。
+
+Yamaha SWXは`os_family="SWX"`で指定します（SWXはパーサ選択用の識別子で、公式のOS名ではありません）。SWX2320とSWX3200のコマンドリファレンスで同じ書式を確認できた範囲のみ解析し、機種は推測しません。`show config`などの別名、`show ip route database`、`show interface`（詳細）は未登録です。使用例は次のとおりです。
+
+```python
+result = engine.parse(
+    Path("tests/config/yamaha_swx_running_config.cfg").read_text(encoding="utf-8"),
+    ParseContext(vendor="Yamaha", os_family="SWX", command="show running-config"),
+)
+if isinstance(result.data, ConfigDocument):
+    vlan10 = next(i for i in result.data.interfaces if i.name == "vlan10")
+    print([str(address) for address in vlan10.ipv4_addresses])
+```
 
 ## 解析結果と不完全な入力
 

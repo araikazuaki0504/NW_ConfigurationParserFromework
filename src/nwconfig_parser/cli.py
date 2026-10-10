@@ -40,6 +40,13 @@ from nwconfig_parser.parsers.hpe_comware_operational import (
 from nwconfig_parser.parsers.registry import ParserRegistry
 from nwconfig_parser.parsers.yamaha_operational import YamahaShowIpRouteParser
 from nwconfig_parser.parsers.yamaha_rtx_config import YamahaRtxConfigParser
+from nwconfig_parser.parsers.yamaha_swx_config import YamahaSwxConfigParser
+from nwconfig_parser.parsers.yamaha_swx_operational import (
+    YamahaSwxShowInterfaceBriefParser,
+    YamahaSwxShowIpInterfaceBriefParser,
+    YamahaSwxShowIpRouteParser,
+    YamahaSwxShowVlanBriefParser,
+)
 
 
 def _json_default(value: Any) -> Any:
@@ -79,6 +86,11 @@ def build_registry() -> ParserRegistry:
         FortinetFortiosConfigParser,
         A10AcosConfigParser,
         HpeComwareConfigParser,
+        YamahaSwxConfigParser,
+        YamahaSwxShowInterfaceBriefParser,
+        YamahaSwxShowVlanBriefParser,
+        YamahaSwxShowIpRouteParser,
+        YamahaSwxShowIpInterfaceBriefParser,
     ):
         registry.register(parser_class())
     return registry

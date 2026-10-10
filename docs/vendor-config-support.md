@@ -7,6 +7,7 @@ Out of scope and **not registered**: Cisco NX-OS, ArubaOS-CX, ArubaOS-Switch.
 | Vendor / OS | `--vendor` / `--os` | Command id | Module |
 |---|---|---|---|
 | Yamaha / RTX | Yamaha / RTX | `show config` | `parsers/yamaha_rtx_config.py` |
+| Yamaha / SWX | Yamaha / SWX | `show running-config` | `parsers/yamaha_swx_config.py` |
 | Fortinet / FortiOS | Fortinet / FortiOS | `show` | `parsers/fortinet_fortios_config.py` |
 | A10 / ACOS | A10 / ACOS | `show running-config` | `parsers/a10_acos_config.py` |
 | HPE / Comware | HPE / Comware | `display current-configuration` | `parsers/hpe_comware_config.py` |
@@ -156,3 +157,53 @@ print(port.ipv4_addresses, port.admin_status, result.data.static_routes)
 ```
 
 CLI: `--vendor Yamaha --os RTX --command "show config"`.
+
+## Yamaha SWX (SWX2320 / SWX3200 command references)
+
+Sources: SWX232x Command Reference (Rev.2.05.24-2.08.06, 15th ed.) and SWX3200
+Command Reference (Rev.4.00.37, 18th ed.) from Yamaha's public site. The
+`show running-config` web page (Rev.2.05.02) only has an elided example, so
+no claim rests on it. `SWX` is a registry identifier, not an official OS name.
+SWX2300 and other revisions were **not** checked.
+
+Model handling: every implemented statement has the same documented syntax in
+SWX2320 and SWX3200, so no model detection is used and `ParseContext.os_version`
+is ignored. The one difference found (`vlan <range> name`: SWX2320 gives every
+VLAN the name, SWX3200 forbids it) is reported as unsupported for both. No
+overlapping registrations exist, so selection stays unambiguous. If a future
+syntax differs by model, an explicit model key in `source_metadata` and a
+registry split would be needed (Engine contract unchanged).
+
+Config (`show running-config`; `show config` is not accepted as an alias,
+because the references list it for other purposes):
+
+| Statement | Result |
+|---|---|
+| `hostname` / `no hostname` | `hostname`; `no` clears it (the `SWX232x` default is not filled in) |
+| `vlan database` > `vlan <ids> [name N] [state enable\|disable]`, `no vlan` | `ConfigDocument.vlans`; ids 2-4094, `2-4` and `2,4` ranges; `state disable` removes the VLAN; auto name `VLANxxxx` not filled in |
+| `interface port<S>.<X>` / `vlan<N>` / `sa<N>` / `po<N>` | `Interface`; other forms (ranges) unsupported with their children |
+| `description`, `shutdown`, `no shutdown` | Explicit state only; last statement wins |
+| `switchport mode access\|trunk [ingress-filter ..]`, `switchport access vlan`, `switchport trunk native vlan`, `switchport trunk allowed vlan add\|remove\|none`, `no switchport trunk` | `mode`, `access_vlan`, `trunk_vlans`, `attributes["native_vlan"]`; switching mode resets the other mode's settings and native/allowed interplay follows the documented last-command-wins rule; defaults (mode access, VLAN 1) never filled in |
+| `ip address a.b.c.d/m` or `a.b.c.d netmask` `[secondary]`, `no ip address` | `ipv4_addresses` (first = primary); only on `vlan<N>`; the VLAN interface's existence says nothing about routing |
+| `ip route net/m gw [distance]`, `ip route net mask gw`, `... null`, `no ip route` | `static_routes`; the default distance 1 is not filled in; `null` sets `attributes["null_route"]` |
+
+Unsupported (kept with line numbers): `ip forwarding` (not mapped to
+`ip_routing`), `switchport trunk allowed vlan all|except` (depends on later VLAN
+definitions; the interface is flagged `attributes["trunk_vlans_complete"] =
+False`), bare `switchport`, `ip address dhcp`, address `label`, VLAN range with a
+name, interface ranges, `line`, `banner`, and everything else.
+`show running-config [section]` output is not supported as a basic form.
+
+Operational (`os_family="SWX"`): `show interface brief` -> `list[Interface]`
+(link status in `operational_status`; Reason code, PVID and type in
+`attributes`; `admin_status` stays unset), `show vlan brief` -> `list[VLAN]`
+(`(u)`/`(t)` kept in `attributes["member_tagging"]`, continuation lines joined),
+`show ip route` (FIB) -> `RoutingTable` (route codes taken from the `Codes:`
+legend; an unknown code is an issue), `show ip interface brief` ->
+`list[Interface]` (`Admin-Status` -> `admin_status`, `Link-Status` ->
+`operational_status`, `(secondary)` and DHCP markers kept). A recognised header
+with no rows is SUCCESS with empty data; empty or unrecognised input is FAILED.
+No VRF, OSPF, BGP, ACL, STP, LAG, PoE, IPv6, LLDP or push support.
+
+Verification: synthetic fixtures only (`tests/config/yamaha_swx_*`), shaped
+after the command-reference examples; **no device verification**.

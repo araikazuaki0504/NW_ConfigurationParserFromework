@@ -16,12 +16,16 @@ engine = ParserEngine(build_registry())
 samples = [
     ("Yamaha", "RTX", "show ip route", "yamaha_rtx_show_ip_route.txt"),
     (
-        "Fortinet", "FortiOS", "get router info routing-table all",
+        "Fortinet",
+        "FortiOS",
+        "get router info routing-table all",
         "fortinet_fortios_routing_table_all.txt",
     ),
     ("A10", "ACOS", "show ip route", "a10_acos_show_ip_route.txt"),
     (
-        "HPE", "Comware", "display ip routing-table",
+        "HPE",
+        "Comware",
+        "display ip routing-table",
         "hpe_comware_display_ip_routing_table.txt",
     ),
 ]
@@ -31,8 +35,10 @@ for vendor, os_family, command, filename in samples:
     result = engine.parse(
         path.read_text(encoding="utf-8"),
         ParseContext(
-            vendor=vendor, os_family=os_family,
-            command=command, filename=str(path),
+            vendor=vendor,
+            os_family=os_family,
+            command=command,
+            filename=str(path),
         ),
     )
     print(vendor, result.status.value)

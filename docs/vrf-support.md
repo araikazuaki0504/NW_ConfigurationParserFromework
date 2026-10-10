@@ -13,7 +13,7 @@ here is device-verified. Cisco IOS / IOS XE is the reference implementation.
 | Fortinet FortiOS | Operational: `Routing table for VRF=<n>` headings in `get router info routing-table all` | TESTED_WITH_SYNTHETIC_DATA (partial) | Only the numeric VRF ID is known (`vrf_scope=ID_ONLY`, `vrf_id`, `vrf=None`). ID 0 is **not** declared the default VRF. Name-to-ID mapping and FortiOS config are not implemented |
 | HPE Comware | Operational: `display ip routing-table vpn-instance <name>`; config: `ip vpn-instance`, `ip binding vpn-instance`, `ip route-static vpn-instance` (see [vendor-config-support.md](vendor-config-support.md)) | TESTED_WITH_SYNTHETIC_DATA (partial) | Config VRF names and VPN-instance-view `route-distinguisher`; address-family RD unsupported. Plain `display ip routing-table` stays default scope |
 | Cisco NX-OS | VRF config / operational | NOT_IMPLEMENTED | No NX-OS parser |
-| Yamaha RTX, A10 ACOS | VRF / partition | NOT_IMPLEMENTED | No VRF claim is made; routes keep default scope |
+| Yamaha RTX, Yamaha SWX, A10 ACOS | VRF / partition | NOT_IMPLEMENTED | No VRF claim is made (no VRF text in the SWX2320/SWX3200 references); routes keep default scope |
 | ArubaOS-CX, ArubaOS-Switch | VRF | NOT_IMPLEMENTED | No parser registered |
 
 ## Model changes (all additive)

@@ -6,6 +6,7 @@
 |---|---|---|
 | Cisco IOS / IOS XE | `cisco_config.py` | `cisco_config_semantics.py` |
 | Yamaha RTX | `yamaha_rtx_config.py` | `yamaha_rtx_config_semantics.py` |
+| Yamaha SWX | `yamaha_swx_config.py` | `yamaha_swx_config_semantics.py` |
 | Fortinet FortiOS | `fortinet_fortios_config.py` | `fortinet_fortios_config_semantics.py` |
 | A10 ACOS | `a10_acos_config.py` | `a10_acos_config_semantics.py` |
 | HPE Comware | `hpe_comware_config.py` | `hpe_comware_config_semantics.py` |
